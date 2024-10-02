@@ -21,7 +21,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.0  # Adjust version as needed
+          ruby-version: 3.0
           bundler-cache: true
 
       - name: Install dependencies
@@ -33,7 +33,7 @@ jobs:
       - name: Upload artifact for deployment
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./_site  # Ensure this matches your Jekyll output directory
+          path: ./_site
 
   deploy:
     needs: build
