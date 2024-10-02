@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Image Converter</title>
+    <style>
+        body {
+            font-family: monospace;
+            background-color: #000;
+            color: #fff;
+            text-align: center;
+        }
+        #ascii-output {
+            white-space: pre;
+            font-size: 5px;
+            line-height: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ASCII Image Converter</h1>
+    <input type="file" id="image-input" accept="image/*" />
+    <br><br>
+    <canvas id="image-canvas" style="display:none;"></canvas>
+    <pre id="ascii-output"></pre>
+
+    <script>
+        const ASCII_CHARS = "@%#*+=-:. ";
+        
+        document.getElementById("image-input").addEventListener("change", function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        convertToASCII(img);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function convertToASCII(img) {
+            const canvas = document.getElementById('image-canvas');
+            const ctx = canvas.getContext('2d');
+            const width = 100; // Set desired width for ASCII art
+            const height = Math.floor(img.height * (width / img.width)); // Maintain aspect ratio
+
+            canvas.width = width;
+            canvas.height = height;
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const imgData = ctx.getImageData(0, 0, width, height);
+            let asciiArt = "";
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const offset = (y * width + x) * 4;
+                    const r = imgData.data[offset];
+                    const g = imgData.data[offset + 1];
+                    const b = imgData.data[offset + 2];
+                    const avg = (r + g + b) / 3;
+                    const charIndex = Math.floor((avg / 255) * (ASCII_CHARS.length - 1));
+                    asciiArt += ASCII_CHARS[charIndex];
+                }
+                asciiArt += "\n";
+            }
+
+            document.getElementById("ascii-output").textContent = asciiArt;
+        }
+    </script>
+</body>
+</html>
