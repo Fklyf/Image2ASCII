@@ -5,19 +5,22 @@ import os
 import numpy as np
 from PIL import Image
 import subprocess
+import threading
+import time
 
-# 002 3-10-2024
+# IMAGE2ASCII 005
 
 # Set accepted image formats
 ACCEPTED_FORMATS = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff', 'webp']
 
 # Define the ASCII characters based on intensity
-ASCII_CHARS = "@%#*+=-:. "  # Make sure this is defined globally
+ASCII_CHARS = "@%#*+=-:. "
 
 # Constants for GitHub label
 GITHUB_FONT_SIZE = 10  # Font size for the GitHub link text
 GITHUB_TRANSPARENCY = 145  # Transparency (out of 255, semi-transparent)
 RATIO_ADJUSTMENT_NUM = 2.8
+
 
 class ImageApp(pyglet.window.Window):
     def __init__(self):
@@ -59,6 +62,9 @@ class ImageApp(pyglet.window.Window):
         self.awaiting_input = False  # Tracks if the program is waiting for width/height input
         self.processing_started = False  # Prevents duplicate input during processing
         self.input_disabled = False  # Flag to disable input spam
+        self.processing_percentage = 0  # Track percentage progress during processing
+        self.total_lines = 0  # Total number of lines to process
+        self.lines_processed = 0  # Lines processed so far
 
         # Enable file drop
         self.set_handler('on_file_drop', self.on_file_drop)
@@ -109,21 +115,24 @@ class ImageApp(pyglet.window.Window):
 
     def add_to_console(self, message, clear_last=False):
         """Adds a new line of text to the console, keeping only the latest messages visible."""
-        if clear_last and self.console_labels:
-            self.console_labels.pop()  # Remove the last label if clearing last message
+        def _add_message(dt=None):
+            if clear_last and self.console_labels:
+                self.console_labels.pop()  # Remove the last label if clearing last message
 
-        # Create a new label for the message
-        new_label = pyglet.text.Label(message, font_name='Arial', font_size=12, anchor_x='center')
-        self.console_labels.append(new_label)
-        self.console_messages.append(message)
+            # Create a new label for the message
+            new_label = pyglet.text.Label(message, font_name='Arial', font_size=12, anchor_x='center')
+            self.console_labels.append(new_label)
+            self.console_messages.append(message)
 
-        # If more than max_console_lines, remove the oldest message
-        if len(self.console_labels) > self.max_console_lines:
-            self.console_labels.pop(0)
-            self.console_messages.pop(0)
+            # If more than max_console_lines, remove the oldest message
+            if len(self.console_labels) > self.max_console_lines:
+                self.console_labels.pop(0)
+                self.console_messages.pop(0)
 
-        # Update the positions of the labels
-        self.update_console_positions()
+            # Update the positions of the labels
+            self.update_console_positions()
+
+        pyglet.clock.schedule_once(_add_message, 0)
 
     def on_mouse_press(self, x, y, button, modifiers):
         # Check if the user clicked the "Browse" button
@@ -218,7 +227,7 @@ class ImageApp(pyglet.window.Window):
                         self.add_to_console("Enter desired height (leave blank for default):")
                     else:
                         self.height_input = None  # Leave as None to use default
-                        self.process_image()  # Process the image
+                        self.start_image_processing()  # Start the image processing in a thread
                     self.input_buffer = ""
                     return
 
@@ -239,55 +248,112 @@ class ImageApp(pyglet.window.Window):
                     self.add_to_console(f"Height entered: {self.input_buffer}", clear_last=True)
                     self.height_input = int(self.input_buffer)
                     self.input_buffer = ""
-                    self.process_image()
+                    self.start_image_processing()  # Start the image processing in a thread
 
             else:
                 self.input_buffer += text
                 self.add_to_console(self.input_buffer, clear_last=True)  # Update the console with the current input buffer
 
-    def process_image(self):
-        """Initiates image processing and prevents further input."""
-        if not self.image_processed:
-            self.processing_started = True  # Mark processing as started to prevent double input
-            self.add_to_console("Processing image...")  # Show loading message
-            self.convert_image_to_ascii(self.image_path, self.width_input, self.height_input)
+    def start_image_processing(self):
+        """Start the image processing in a separate thread to avoid freezing the UI."""
+        self.processing_started = True  # Mark processing as started to prevent duplicate input
+        self.add_to_console("Processing image...")  # Show loading message
+        # Start the image processing in a separate thread
+        processing_thread = threading.Thread(target=self.convert_image_to_ascii, args=(self.image_path, self.width_input, self.height_input))
+        processing_thread.start()
+
+        # Start a thread to monitor progress and update the UI
+        progress_thread = threading.Thread(target=self.monitor_progress)
+        progress_thread.start()
+
+    def monitor_progress(self):
+        """Periodically checks the progress and updates the UI."""
+        while not self.image_processed:
+            time.sleep(0.03)  # Wait 30ms between checks
+            pyglet.clock.schedule_once(lambda dt: self.update_progress_in_console(), 0)
 
     def convert_image_to_ascii(self, image_path, new_width=None, new_height=None):
-        """Convert the image to ASCII art and save it."""
+        """Convert the image to ASCII art and save it, showing progress in percentage."""
         try:
             image = Image.open(image_path)
         except Exception as e:
-            self.add_to_console(f"Unable to open image file. Error: {e}")
-            self.processing_started = False  # Reset processing flag if an error occurs
-            self.input_disabled = False  # Allow re-entry after error
+            pyglet.clock.schedule_once(lambda dt: self.add_to_console(f"Unable to open image file. Error: {e}"), 0)
+            self.reset_state()
             return
 
         # Get the file name without extension for renaming
         file_name, _ = os.path.splitext(os.path.basename(image_path))
 
+        # Use the original dimensions of the image if new dimensions are not provided
         if new_width is None:
-            new_width = image.size[0]  # Default to image's original width
+            new_width = image.size[0]
         if new_height is None:
-            new_height = image.size[1]  # Default to image's original height
+            new_height = image.size[1]
 
         # Resize and convert to grayscale
         image = resize_image(image, new_width=new_width, new_height=new_height)
         image = grayscale_image(image)
 
+        # Calculate the total number of lines
+        self.total_lines = image.size[1]  # The height of the image is the number of lines
+
+        # Reset processed lines
+        self.lines_processed = 0
+
         # Convert to ASCII
-        ascii_art = pixel_to_ascii(image)
+        ascii_str = ''
+        pixels = np.array(image)
+        for pixel_row in pixels:
+            for pixel in pixel_row:
+                ascii_str += ASCII_CHARS[pixel // 32] if pixel != 255 else ' '
+
+            ascii_str += '\n'
+
+            # Update lines processed
+            self.lines_processed += 1
 
         # Save the result to a file
         ascii_file_path = f"{file_name}_ASCII.txt"
         with open(ascii_file_path, "w") as f:
-            f.write(ascii_art)
-        self.add_to_console(f"ASCII art successfully written to {ascii_file_path}!")
+            f.write(ascii_str)
 
-        # Automatically open the ASCII file
+        # Schedule the message to indicate the file is saved
+        pyglet.clock.schedule_once(
+            lambda dt: self.add_to_console(f"ASCII art successfully written to {ascii_file_path}!"), 0)
+
+        # Open the file with the system's default viewer
         self.open_file(ascii_file_path)
 
+        # Forcefully set progress to 100% at the end, passing `ascii_file_path` to the progress function
+        self.lines_processed = self.total_lines
+        pyglet.clock.schedule_once(
+            lambda dt: self.update_progress_in_console(force_complete=True, ascii_file_path=ascii_file_path), 0)
+
+        # Reset progress once complete
+        self.processing_percentage = 0
         self.image_processed = True
         self.processing_started = False  # Allow new input after processing is complete
+
+    def update_progress_in_console(self, force_complete=False, ascii_file_path=None):
+        """Calculates and updates the processing percentage in the console."""
+        if self.total_lines > 0:
+            self.processing_percentage = int((self.lines_processed / self.total_lines) * 100)
+
+            # Ensure progress is always cleared and updated on the same line
+            if force_complete:
+                self.processing_percentage = 100
+                self.clear_last_console_message()  # Clear the previous line
+                self.add_to_console(f"Processing image... (100%)", clear_last=True)
+                if ascii_file_path:
+                    self.add_to_console(f"ASCII art successfully written to {ascii_file_path}!", clear_last=False)
+            elif self.processing_percentage < 100:
+                self.add_to_console(f"Processing image... ({self.processing_percentage}%)", clear_last=True)
+
+    def clear_last_console_message(self):
+        """Clears the last message in the console by popping the last label."""
+        if self.console_labels:
+            self.console_labels.pop()  # Remove the last label (progress message)
+
 
     def open_file(self, file_path):
         # Open the file with the default system program
@@ -299,7 +365,20 @@ class ImageApp(pyglet.window.Window):
             else:
                 self.add_to_console(f"Cannot open file: {file_path}. Unsupported OS.")
         except Exception as e:
-            self.add_to_console(f"Error opening file: {e}")
+            pyglet.clock.schedule_once(lambda dt: self.add_to_console(f"Error opening file: {e}"), 0)
+
+    def reset_state(self):
+        """Resets the application state to allow the user to retry after a failure."""
+        self.image_path = None
+        self.width_input = None
+        self.height_input = None
+        self.processing_started = False
+        self.image_processed = False
+        self.awaiting_input = False
+        self.input_buffer = ""
+        self.input_disabled = False
+        pyglet.clock.schedule_once(lambda dt: self.clear_console(), 0)
+        pyglet.clock.schedule_once(lambda dt: self.add_to_console("Submit an image to convert to ASCII art!"), 0)
 
 
 # Resize the image, ensuring it fits within the given width and height while maintaining aspect ratio
