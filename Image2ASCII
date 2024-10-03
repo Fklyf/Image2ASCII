@@ -17,7 +17,7 @@ ASCII_CHARS = "@%#*+=-:. "  # Make sure this is defined globally
 # Constants for GitHub label
 GITHUB_FONT_SIZE = 10  # Font size for the GitHub link text
 GITHUB_TRANSPARENCY = 145  # Transparency (out of 255, semi-transparent)
-RATIO_ADJUSTMENT_NUM = 2.75
+RATIO_ADJUSTMENT_NUM = 2.8
 
 class ImageApp(pyglet.window.Window):
     def __init__(self):
@@ -41,9 +41,9 @@ class ImageApp(pyglet.window.Window):
         self.max_console_lines = 5  # Maximum number of lines to show
 
         # GitHub link at the bottom-right corner
-        self.github_label = pyglet.text.Label('https://github.com/Fklyf/VisualBassSync',
+        self.github_label = pyglet.text.Label('https://github.com/Fklyf/Image2ASCII',
                                               font_name='Arial', font_size=GITHUB_FONT_SIZE,
-                                              x=self.width - 10, y=10, anchor_x='right',
+                                              x=10, y=10, anchor_x='right',
                                               color=(255, 255, 255, GITHUB_TRANSPARENCY))
 
         # Invisible drag-and-drop area covering the entire window
@@ -140,7 +140,7 @@ class ImageApp(pyglet.window.Window):
             self.open_github()
 
     def open_github(self):
-        url = "https://github.com/Fklyf/VisualBassSync"  # Replace with your actual GitHub link
+        url = "https://github.com/Fklyf/Image2ASCII"
         try:
             if os.name == 'posix':
                 subprocess.call(['xdg-open', url])
@@ -356,5 +356,8 @@ def pixel_to_ascii(image):
 
 
 if __name__ == "__main__":
-    window = ImageApp()
-    pyglet.app.run()
+    try:
+        window = ImageApp()
+        pyglet.app.run()
+    except KeyboardInterrupt:
+        print("Application stopped.")
