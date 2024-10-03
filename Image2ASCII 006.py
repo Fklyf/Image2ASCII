@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 
-# IMAGE2ASCII 005
+# IMAGE2ASCII 006
 
 # Set accepted image formats
 ACCEPTED_FORMATS = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff', 'webp']
@@ -184,18 +184,26 @@ class ImageApp(pyglet.window.Window):
         # Hide the main tkinter window
         root = Tk()
         root.withdraw()
+
+        # Open file dialog
         file_path = filedialog.askopenfilename(title="Select Image", filetypes=[
             ("Image files", "*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.webp")])
+
         root.destroy()
 
         self.image_processed = False  # Reset image processing flag
         self.clear_console()  # Clear console when a new file is selected
+
         if file_path and self.is_image(file_path):
             self.image_path = file_path
             self.add_to_console(f"Selected image: {self.image_path}")
             self.ask_for_dimensions(self.image_path)
         else:
-            self.add_to_console("Invalid image file selected.")
+            # If no file is selected, show a message in the console
+            if not file_path:
+                self.add_to_console("No image selected. User closed the file dialog.")
+            else:
+                self.add_to_console("Invalid image file selected.")
 
     def is_image(self, file_path):
         # Validate file by checking the file type using Pillow (more robust than just extension)
@@ -215,44 +223,56 @@ class ImageApp(pyglet.window.Window):
         self.add_to_console("Enter desired width (leave blank for default):")
 
     def on_text(self, text):
-        if self.awaiting_input and not self.processing_started and not self.input_disabled:  # Prevent spamming input
+        if self.awaiting_input and not self.processing_started and not self.input_disabled:
+            # Handle Enter key
             if text == '\r':  # Enter key
-                self.input_disabled = True  # Disable further input after pressing Enter
-                if not self.input_buffer.strip():
+                self.input_disabled = True
+                if not self.input_buffer.strip():  # No input provided
                     self.add_to_console("No input provided, using default size.", clear_last=True)
                     if self.entering_width:
-                        self.width_input = None  # Leave as None to use default
+                        self.width_input = None  # Default value
+                        self.entering_width = False
+                        self.input_disabled = False  # Re-enable for height input
+                        self.add_to_console("Enter desired height (leave blank for default):")
+                    else:
+                        self.height_input = None  # Default value
+                        self.start_image_processing()  # Start image processing
+                    self.input_buffer = ""
+                else:
+                    if self.entering_width:
+                        self.add_to_console(f"Width entered: {self.input_buffer}", clear_last=True)
+                        self.width_input = int(self.input_buffer)
+                        self.input_buffer = ""
                         self.entering_width = False
                         self.input_disabled = False  # Re-enable input for height
                         self.add_to_console("Enter desired height (leave blank for default):")
                     else:
-                        self.height_input = None  # Leave as None to use default
-                        self.start_image_processing()  # Start the image processing in a thread
-                    self.input_buffer = ""
-                    return
+                        self.add_to_console(f"Height entered: {self.input_buffer}", clear_last=True)
+                        self.height_input = int(self.input_buffer)
+                        self.input_buffer = ""
+                        self.start_image_processing()  # Start the image processing
+                return
 
-                if not self.input_buffer.isdigit():
-                    self.add_to_console("Error: Please enter a valid number.")
-                    self.input_buffer = ""  # Reset the input buffer
-                    self.input_disabled = False  # Re-enable input if error occurs
-                    return
-
-                if self.entering_width:
-                    self.add_to_console(f"Width entered: {self.input_buffer}", clear_last=True)
-                    self.width_input = int(self.input_buffer)
-                    self.input_buffer = ""
-                    self.entering_width = False
-                    self.input_disabled = False  # Re-enable input for height
-                    self.add_to_console("Enter desired height (leave blank for default):")
-                else:
-                    self.add_to_console(f"Height entered: {self.input_buffer}", clear_last=True)
-                    self.height_input = int(self.input_buffer)
-                    self.input_buffer = ""
-                    self.start_image_processing()  # Start the image processing in a thread
-
-            else:
+            # Ensure only numeric input is allowed
+            if text.isdigit():
                 self.input_buffer += text
-                self.add_to_console(self.input_buffer, clear_last=True)  # Update the console with the current input buffer
+                self.update_input_line()
+
+    def on_text_motion(self, motion):
+        """Handle special keys like backspace."""
+        if self.awaiting_input and not self.processing_started and not self.input_disabled:
+            if motion == key.MOTION_BACKSPACE:
+                # Handle backspace key
+                if len(self.input_buffer) > 0:
+                    self.input_buffer = self.input_buffer[:-1]
+                self.update_input_line()
+
+    def update_input_line(self):
+        """Updates the displayed input line for width or height."""
+        if self.entering_width:
+            self.add_to_console(f"Enter desired width: {self.input_buffer}", clear_last=True)
+        else:
+            self.add_to_console(f"Enter desired height: {self.input_buffer}", clear_last=True)
 
     def start_image_processing(self):
         """Start the image processing in a separate thread to avoid freezing the UI."""
