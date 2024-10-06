@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 
-# IMAGE2ASCII 006
+# IMAGE2ASCII 009
 
 # Set accepted image formats
 ACCEPTED_FORMATS = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff', 'webp']
@@ -24,53 +24,54 @@ RATIO_ADJUSTMENT_NUM = 2.8
 
 class ImageApp(pyglet.window.Window):
     def __init__(self):
-        super().__init__(width=800, height=375, caption="Image to ASCII", resizable=False)
+        super().__init__(width=800, height=375, caption="Image2ASCII", resizable=False)
 
-        # Label asking to submit an image
+        # UI components
         self.prompt_label = pyglet.text.Label('Submit an image to convert to ASCII art!',
                                               font_name='Arial', font_size=14,
                                               x=self.width // 2, y=self.height // 2 + 100, anchor_x='center')
-
-        # Browse button
         self.browse_button = pyglet.shapes.Rectangle(self.width // 2 - 60, self.height // 2, 120, 40,
-                                                     color=(50, 100, 150))
+                                                     color=(50, 100, 150))  # Default button color
         self.browse_text = pyglet.text.Label('Browse', font_name='Arial', font_size=16,
                                              x=self.width // 2, y=self.height // 2 + 20, anchor_x='center',
-                                             anchor_y='center')
+                                             anchor_y='center', color=(255, 255, 255, 255))  # Default white text
 
         # Console for message output
         self.console_messages = []
         self.console_labels = []
         self.max_console_lines = 5  # Maximum number of lines to show
 
-        # GitHub link at the bottom-right corner
+        # Track hover state for the button
+        self.is_hovering_button = False
+
+        # GitHub link at the bottom-left corner
         self.github_label = pyglet.text.Label('https://github.com/Fklyf/Image2ASCII',
-                                              font_name='Arial', font_size=GITHUB_FONT_SIZE,
-                                              x=10, y=10, anchor_x='right',
-                                              color=(255, 255, 255, GITHUB_TRANSPARENCY))
+                                              font_name='Arial', font_size=10,
+                                              x=10, y=10, anchor_x='left', color=(255, 255, 255, 145))
 
-        # Invisible drag-and-drop area covering the entire window
-        self.invisible_button = pyglet.shapes.Rectangle(0, 0, self.width, self.height, color=(0, 0, 0, 0))
-
-        # Variables for user input
-        self.input_buffer = ""
-        self.entering_width = True
-        self.width_input = None
-        self.height_input = None
+        # Variables for user input and state
         self.image_path = None
         self.image_processed = False
-        self.awaiting_input = False  # Tracks if the program is waiting for width/height input
-        self.processing_started = False  # Prevents duplicate input during processing
-        self.input_disabled = False  # Flag to disable input spam
-        self.processing_percentage = 0  # Track percentage progress during processing
-        self.total_lines = 0  # Total number of lines to process
-        self.lines_processed = 0  # Lines processed so far
+        self.processing_started = False
+        self.processing_percentage = 0
+        self.total_lines = 0  # Initialize total_lines
+        self.lines_processed = 0  # Initialize lines_processed
 
-        # Enable file drop
-        self.set_handler('on_file_drop', self.on_file_drop)
+    def brighten_color(self, color, percentage):
+        """Brightens the RGB color by a given percentage."""
+        return tuple(min(int(c + c * percentage), 255) for c in color)
 
     def on_draw(self):
         self.clear()
+
+        # Check if we are hovering over the button
+        if self.is_hovering_button:
+            brightened_color = self.brighten_color(self.browse_button.color, 0.3)  # Brighten by 30%
+            self.browse_button.color = brightened_color
+            self.browse_text.color = (0, 0, 0, 255)  # Change text to black
+        else:
+            self.browse_button.color = (50, 100, 150)  # Revert button to original color
+            self.browse_text.color = (255, 255, 255, 255)  # Revert text to white
 
         # Draw the labels and buttons
         self.prompt_label.draw()
@@ -81,6 +82,50 @@ class ImageApp(pyglet.window.Window):
         # Draw console messages
         for label in self.console_labels:
             label.draw()
+
+    def on_mouse_motion(self, x, y, dx, dy):
+        """Handles mouse movement to detect if it's hovering over the button."""
+        if self.browse_button.x < x < self.browse_button.x + self.browse_button.width and \
+                self.browse_button.y < y < self.browse_button.y + self.browse_button.height:
+            self.is_hovering_button = True
+        else:
+            self.is_hovering_button = False
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        # Check if the user clicked the "Browse" button
+        if self.browse_button.x < x < self.browse_button.x + self.browse_button.width and \
+                self.browse_button.y < y < self.browse_button.y + self.browse_button.height:
+            # Open file dialog when the "Browse" button is clicked
+            threading.Thread(target=self.select_image).start()
+
+        # Check if the GitHub label is clicked
+        if self.github_label.x - 100 < x < self.github_label.x + self.github_label.content_width and \
+                self.github_label.y - 20 < y < self.github_label.y + self.github_label.content_height:
+            self.add_to_console("Opening GitHub page...")
+            # Open GitHub link
+            self.open_github()
+
+    def on_mouse_motion(self, x, y, dx, dy):
+        """Handles mouse movement to detect if it's hovering over the button."""
+        if self.browse_button.x < x < self.browse_button.x + self.browse_button.width and \
+                self.browse_button.y < y < self.browse_button.y + self.browse_button.height:
+            self.is_hovering_button = True
+        else:
+            self.is_hovering_button = False
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        # Check if the user clicked the "Browse" button
+        if self.browse_button.x < x < self.browse_button.x + self.browse_button.width and \
+                self.browse_button.y < y < self.browse_button.y + self.browse_button.height:
+            # Open file dialog when the "Browse" button is clicked
+            threading.Thread(target=self.select_image).start()
+
+        # Check if the GitHub label is clicked
+        if self.github_label.x - 100 < x < self.github_label.x + self.github_label.content_width and \
+                self.github_label.y - 20 < y < self.github_label.y + self.github_label.content_height:
+            self.add_to_console("Opening GitHub page...")
+            # Open GitHub link
+            self.open_github()
 
     def on_resize(self, width, height):
         # Center the prompt label, browse button, and console relative to the window size
@@ -93,12 +138,8 @@ class ImageApp(pyglet.window.Window):
         self.browse_text.y = height // 2 + 20
 
         # Update GitHub label position 10 pixels from the right and 10 pixels from the bottom
-        self.github_label.x = width - 10
+        self.github_label.x = 10
         self.github_label.y = 10
-
-        # Resize the invisible drag-and-drop area
-        self.invisible_button.width = width
-        self.invisible_button.height = height
 
         # Reposition the console messages
         self.update_console_positions()
@@ -158,19 +199,27 @@ class ImageApp(pyglet.window.Window):
         except Exception as e:
             self.add_to_console(f"Error opening GitHub: {e}")
 
-    def on_file_drop(self, path):
+    def on_file_drop(self, path, x, y):
         """Handles the drag-and-drop functionality."""
         if self.processing_started:
             return  # Ignore further input if processing has already started
 
-        self.image_processed = False  # Reset image processing flag
-        self.clear_console()  # Clear console when a new file is dropped
-        if self.is_image(path):
-            self.image_path = path
-            self.add_to_console(f"Accepted image file: {self.image_path}")
-            self.ask_for_dimensions(self.image_path)
+        # Check if the file was dropped inside the Browse button area
+        if self.browse_button.x < x < self.browse_button.x + self.browse_button.width and \
+                self.browse_button.y < y < self.browse_button.y + self.browse_button.height:
+            self.add_to_console("image dragg")
+            self.image_processed = False  # Reset image processing flag
+            self.clear_console()  # Clear console when a new file is dropped
+
+            if self.is_image(path):
+                self.image_path = path
+                self.add_to_console(f"Accepted image file: {self.image_path}")
+                self.ask_for_dimensions(self.image_path)
+            else:
+                self.add_to_console(f"Rejected file: {path}. It is not a valid image format.")
         else:
-            self.add_to_console(f"Rejected file: {path}. It is not a valid image format.")
+            # File wasn't dropped in the "Browse" button area, do nothing
+            self.add_to_console(f"File dropped outside the Browse button area. Please drop it onto the Browse button.")
 
     def clear_console(self):
         """Clears the console output."""
